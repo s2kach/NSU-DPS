@@ -1,0 +1,18 @@
+plugins {
+    id 'application'
+}
+
+group = 'ru.nsu.dizmestev'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+application {
+    mainClass = 'ru.nsu.dizmestev.Main'
+}
+
+run {
+    standardInput = System.in
+}
