@@ -1,5 +1,7 @@
 package ru.nsu.dizmestev;
 
+import com.google.gson.Gson;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -16,8 +18,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class Main {
     private static final String DEFAULT_HOST = "localhost";
@@ -30,7 +30,9 @@ public class Main {
     private static final Object LOCK = new Object();
     private static final Semaphore LIMIT = new Semaphore(100);
 
-    private static final Pattern STRING_VALUE = Pattern.compile(":\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+    private static final Gson GSON = new Gson();
+
+    private record ServerResponse(String message, List<String> successors) {}
 
     private static String host;
     private static int port;
@@ -75,13 +77,14 @@ public class Main {
                             .build();
                     HttpResponse<String> resp = CLIENT.send(req, HttpResponse.BodyHandlers.ofString());
                     if (resp.statusCode() == 200) {
-                        String body = resp.body();
-                        String msg = extractString(body, "message");
-                        if (msg != null) {
-                            messages.add(msg);
+                        ServerResponse r = GSON.fromJson(resp.body(), ServerResponse.class);
+                        if (r.message() != null) {
+                            messages.add(r.message());
                         }
-                        for (String next : extractArray(body, "successors")) {
-                            visit(next);
+                        if (r.successors() != null) {
+                            for (String next : r.successors()) {
+                                visit(next);
+                            }
                         }
                     } else {
                         System.err.println("status " + resp.statusCode() + " for " + p);
@@ -109,76 +112,4 @@ public class Main {
         }
     }
 
-    private static String extractString(String json, String key) {
-        Matcher m = Pattern.compile("\"" + key + "\"\\s*" + STRING_VALUE.pattern())
-                .matcher(json);
-        return m.find() ? unescape(m.group(1)) : null;
-    }
-
-    private static List<String> extractArray(String json, String key) {
-        List<String> res = new ArrayList<>();
-        int keyPos = json.indexOf('"' + key + '"');
-        if (keyPos < 0) {
-            return res;
-        }
-        int open = json.indexOf('[', keyPos);
-        int close = -1;
-        int depth = 0;
-        boolean inStr = false;
-        boolean esc = false;
-        for (int i = open; i >= 0 && i < json.length(); i++) {
-            char c = json.charAt(i);
-            if (inStr) {
-                if (esc) {
-                    esc = false;
-                } else if (c == '\\') {
-                    esc = true;
-                } else if (c == '"') {
-                    inStr = false;
-                }
-            } else if (c == '"') {
-                inStr = true;
-            } else if (c == '[') {
-                depth++;
-            } else if (c == ']' && --depth == 0) {
-                close = i;
-                break;
-            }
-        }
-        if (open < 0 || close < 0) {
-            return res;
-        }
-        Matcher m = Pattern.compile("\"(?:[^\"\\\\]|\\\\.)*\"")
-                .matcher(json.substring(open + 1, close));
-        while (m.find()) {
-            String s = m.group();
-            res.add(unescape(s.substring(1, s.length() - 1)));
-        }
-        return res;
-    }
-
-    private static String unescape(String s) {
-        StringBuilder sb = new StringBuilder(s.length());
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c != '\\' || i + 1 >= s.length()) {
-                sb.append(c);
-                continue;
-            }
-            char n = s.charAt(++i);
-            switch (n) {
-                case 'n' -> sb.append('\n');
-                case 't' -> sb.append('\t');
-                case 'r' -> sb.append('\r');
-                case 'b' -> sb.append('\b');
-                case 'f' -> sb.append('\f');
-                case 'u' -> {
-                    sb.append((char) Integer.parseInt(s.substring(i + 1, i + 5), 16));
-                    i += 4;
-                }
-                default -> sb.append(n);
-            }
-        }
-        return sb.toString();
-    }
 }
